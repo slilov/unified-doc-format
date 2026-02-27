@@ -1,0 +1,465 @@
+{
+  "structure": {
+    "type": "Тип на юридическия акт: constitution | law | code | regulation | ordinance | implementing_regulation | legal_act",
+    "number": "Уникален id на юриди§еския акт",
+    "text": "Наименование на юридическия акт",
+    "children": [
+      {
+        "type": "explanation",
+        "number": null,
+        "text": "Обяснителен текст (В сила от..., Отразена деноминацията от... и т.н.)",
+        "children": []
+      },
+      {
+        "type": "history",
+        "number": null,
+        "text": "История на промените в юридическия акт - обнародване, изменения и допълнения",
+        "children": []
+      },
+      {
+        "type": "preamble_heading",
+        "number": null,
+        "text": "Заглавие на преамбюла (напр. ПРЕАМБЮЛ)",
+        "children": []
+      },
+    {
+      "type": "preamble_heading",
+      "number": null,
+      "text": "Заглавие на преамбюла (напр. ПРЕАМБЮЛ)",
+      "children": [
+        {
+        "type": "preamble",
+        "number": null,
+        "text": "Съдържание на преамбюла",
+        "children": []
+        }
+      ]
+    },
+      {
+        "type": "part",
+        "number": "Номер на частта (Част първа, Част втора и т.н.)",
+        "text": "Заглавие на частта",
+        "title_history": ["Исторически версии на заглавието (ако е имало промени)"],
+        "children": [
+          {
+            "type": "partition",
+            "number": "Номер на дяла (Дял първи, Дял I и т.н.)",
+            "text": "Заглавие на дяла",
+            "title_history": ["Исторически версии на заглавието"],
+            "children": [
+              {
+                "type": "chapter",
+                "number": "Номер на главата (Глава първа, Глава I, Глава 1 и т.н.)",
+                "text": "Заглавие на главата",
+                "title_history": ["Исторически версии на заглавието"],
+                "children": [
+                  {
+                    "type": "section",
+                    "number": "Номер на раздела (Раздел I, Раздел 1 и т.н.)",
+                    "text": "Заглавие на раздела",
+                    "title_history": ["Исторически версии на заглавието (при преименуване)"],
+                    "children": [
+                      {
+                        "type": "subsection",
+                        "number": "Номер на подраздела (Подраздел първи, Подраздел 1 и т.н.)",
+                        "text": "Заглавие на подраздела",
+                        "title_history": ["Исторически версии на заглавието"],
+                        "children": [
+                          {
+                            "type": "heading",
+                            "number": null,
+                            "text": "Заглавие на обособен блок от членове (напр. ТЪРГОВЕЦ)",
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "article",
+        "number": "Номер на члена (Чл. 1., Чл. 2а. и т.н.)",
+        "text": "Текст на члена (може да бъде празен, ако членът съдържа само алинеи)",
+        "html": "HTML съдържание (таблици, изображения и т.н.) - опционално",
+        "children": [
+          {
+            "type": "paragraph",
+            "number": "Номер на алинеята ((1), (2) и т.н.)",
+            "text": "Текст на алинеята",
+            "html": "HTML съдържание - опционално",
+            "children": [
+              {
+                "type": "point",
+                "number": "Номер на точката (1., 2., 1а., 4б. и т.н.)",
+                "text": "Текст на точката",
+                "html": "HTML съдържание - опционално",
+                "children": [
+                  {
+                    "type": "subpoint",
+                    "number": "Номер на подточката (1.1., 2.1., 4.4. и т.н.)",
+                    "text": "Текст на подточката",
+                    "children": [
+                      {
+                        "type": "sub_subpoint",
+                        "number": "Номер на под-подточката (4.4.1., 4.5.12. и т.н.)",
+                        "text": "Текст на под-подточката",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "letter",
+                    "number": "Номер на буквата (а), б), в) и т.н.)",
+                    "text": "Текст на буквата",
+                    "html": "HTML съдържание - опционално",
+                    "children": [
+                      {
+                        "type": "double_letter",
+                        "number": "Номер на двойната буква (аа), бб) и т.н.)",
+                        "text": "Текст на двойната буква",
+                        "html": "HTML съдържание - опционално",
+                        "children": [
+                          {
+                            "type": "triple_letter",
+                            "number": "Номер на тройната буква (ааа), ббб) и т.н.)",
+                            "text": "Текст на тройната буква",
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "latin_letter",
+                    "number": "Латинска буква (a), b), c), d) и т.н.)",
+                    "text": "Текст на латинската буква",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "capital_section",
+            "number": "Главна буква (А., Б., В., Г. и т.н.)",
+            "text": "Текст на раздела с главна буква",
+            "children": [
+              {
+                "type": "point",
+                "number": "Номер на точката",
+                "text": "Текст",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "roman_section",
+            "number": "Римска цифра (І., ІІ., ІІІ., IV. и т.н.)",
+            "text": "Текст на раздела с римска цифра",
+            "children": [
+              {
+                "type": "point",
+                "number": "Номер на точката",
+                "text": "Текст",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "image",
+            "number": null,
+            "text": "",
+            "html": "<img src='...' /> - HTML на изображението",
+            "children": []
+          },
+          {
+            "type": "text_element",
+            "number": null,
+            "text": "Текстов елемент (продължение на текст, запазен за подреждане с изображения)",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "points_container",
+        "number": null,
+        "text": "Контейнер за точки без номер на член (в етични кодекси, правилници и т.н.)",
+        "children": [
+          {
+            "type": "point",
+            "number": "1.",
+            "text": "Текст на точката",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "text_block",
+        "number": null,
+        "text": "Текстов блок без структура (дефиниции, обяснения и т.н.)",
+        "children": []
+      },
+      {
+        "type": "provision",
+        "number": null,
+        "text": "Наименование на разпоредбата (Преходни и заключителни разпоредби, Допълнителни разпоредби и т.н.)",
+        "children": [
+          {
+            "type": "provision_heading",
+            "number": null,
+            "text": "Заглавие на разпоредбата (напр. КЪМ ЗАКОНА ЗА ИЗМЕНЕНИЕ И ДОПЪЛНЕНИЕ НА...)",
+            "children": []
+          },
+          {
+            "type": "provision_history",
+            "number": null,
+            "text": "История на промените в разпоредбата (ОБН. - ДВ, БР. ...)",
+            "children": []
+          },
+          {
+            "type": "clause",
+            "number": "Номер на параграфа (§ 1., § 2а. и т.н.)",
+            "text": "Текст на параграфа",
+            "html": "HTML съдържание - опционално",
+            "children": [
+              {
+                "type": "paragraph",
+                "number": "Номер на алинеята ((1) и т.н.)",
+                "text": "Текст на алинеята",
+                "html": "HTML съдържание - опционално",
+                "children": [
+                  {
+                    "type": "point",
+                    "number": "Номер на точката (1. и т.н.)",
+                    "text": "Текст на точката",
+                    "html": "HTML съдържание - опционално",
+                    "children": [
+                      {
+                        "type": "letter",
+                        "number": "а)",
+                        "text": "Текст на буквата",
+                        "children": [
+                          {
+                            "type": "double_letter",
+                            "number": "аа)",
+                            "text": "Текст на двойната буква",
+                            "children": [
+                              {
+                                "type": "triple_letter",
+                                "number": "ааа)",
+                                "text": "Текст на тройната буква",
+                                "children": []
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "delimiter",
+            "number": null,
+            "text": ".................................................",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "EU_legislation_relevance",
+        "number": null,
+        "text": "Релевантни актове от Европейското законодателство",
+        "children": [
+          {
+            "type": "EU_directive",
+            "number": null,
+            "text": "Директиви",
+            "children": [
+              {
+                "type": "EU_directive_item",
+                "number": null,
+                "text": "Текст на директивата",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "EU_regulation",
+            "number": null,
+            "text": "Регламенти",
+            "children": [
+              {
+                "type": "EU_regulation_item",
+                "number": null,
+                "text": "Текст на регламента",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "EU_decision",
+            "number": null,
+            "text": "Решения",
+            "children": [
+              {
+                "type": "EU_decision_item",
+                "number": null,
+                "text": "Текст на решението",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "EU_other_act",
+            "number": null,
+            "text": "Други актове",
+            "children": [
+              {
+                "type": "EU_other_act_item",
+                "number": null,
+                "text": "Текст на акта",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "appendix",
+        "number": "Приложение № 1 (или № 1а, № 2 и т.н.)",
+        "text": "Референция (напр. към чл. 3, ал. 4)",
+        "html": "Пълното HTML съдържание на приложението (таблици, форми, изображения)",
+        "children": [
+          {
+            "type": "appendix_title",
+            "number": null,
+            "text": "Заглавие в приложение (напр. МЕТОДИКА, МИНИМАЛНИ ИЗИСКВАНИЯ)",
+            "children": []
+          },
+          {
+            "type": "appendix_subtitle",
+            "number": null,
+            "text": "Подзаглавие (напр. за определяне на резултатите от гласуването)",
+            "children": []
+          },
+          {
+            "type": "appendix_section",
+            "number": "Раздел І (или Раздел 1, Раздел II и т.н.)",
+            "text": "Заглавие на раздела в приложението",
+            "children": [
+              {
+                "type": "simple_point",
+                "number": "1. (или 2., 3. и т.н.)",
+                "text": "Текст на простата номерирана точка",
+                "children": []
+              },
+              {
+                "type": "subpoint",
+                "number": "1.1. (или 2.1., 4.4. и т.н.)",
+                "text": "Текст на подточката",
+                "children": [
+                  {
+                    "type": "sub_subpoint",
+                    "number": "4.4.1. (или 4.5.12. и т.н.)",
+                    "text": "Текст на под-подточката",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "text_block",
+                "number": null,
+                "text": "Текстов блок в приложение",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "roman_section",
+            "number": "І. (или ІІ., ІІІ., IV. и т.н.)",
+            "text": "Текст на раздел с римска цифра в приложение",
+            "children": []
+          },
+          {
+            "type": "html_block",
+            "number": null,
+            "text": null,
+            "html": "HTML блок с таблици, форми, изображения (запазва оригиналното форматиране)",
+            "children": []
+          },
+          {
+            "type": "provision_history",
+            "number": null,
+            "text": "(Доп. - ДВ, бр. ...) - история на промени в приложението",
+            "children": []
+          },
+          {
+            "type": "appendix_note",
+            "number": null,
+            "text": "Бележка към приложението",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "_meta": {
+    "description": "Шаблон за структурата на българските юридически актове (версия 2)",
+    "version": "2.0",
+    "last_updated": "2026-01-26",
+    "notes": {
+      "doc_types": {
+        "constitution": "Конституция",
+        "law": "Закон",
+        "code": "Кодекс",
+        "regulation": "Наредба",
+        "ordinance": "Правилник",
+        "implementing_regulation": "Правилник по прилагане",
+        "legal_act": "Друг юридически акт"
+      },
+      "special_article_types": {
+        "single_article": "Член единствен. - за закони с един член",
+        "points_only": "Членове само с точки (без номер Чл. X.) - в етични кодекси и правилници"
+      },
+      "hierarchy_order": [
+        "part (Част)",
+        "partition (Дял)",
+        "chapter (Глава)",
+        "section (Раздел)",
+        "subsection (Подраздел)",
+        "heading (Заглавие)",
+        "article (Член)"
+      ],
+      "article_internal_hierarchy": [
+        "paragraph (Алинея)",
+        "point (Точка)",
+        "subpoint (Подточка 1.1.)",
+        "sub_subpoint (Под-подточка 4.4.1.)",
+        "letter (Буква а))",
+        "double_letter (Двойна буква аа))",
+        "triple_letter (Тройна буква ааа))",
+        "latin_letter (Латинска буква a))"
+      ],
+      "section_types_in_articles": [
+        "capital_section (А., Б., В.)",
+        "roman_section (І., ІІ., ІІІ.)"
+      ],
+      "table_data_structure": {
+        "headers": "Масив от редове със заглавки",
+        "rows": "Масив от редове с данни",
+        "title": "Заглавие на таблицата (опционално)",
+        "notes": "Бележки след таблицата (опционално)",
+        "column_numbers": "Ред с номера на колоните (1, 2, 3...)",
+        "normalized_headers": "Заглавки с colspan/rowspan информация"
+      }
+    }
+  }
+}
