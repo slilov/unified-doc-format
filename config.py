@@ -2,9 +2,10 @@
 Configuration for the unified legal document format converter.
 
 Contains NodeType enum, hierarchy definitions, CSS class mappings,
-and UID format constants.
+UID format constants, and Bulgarian-specific text utilities.
 """
 
+import re
 from enum import Enum
 
 
@@ -159,3 +160,118 @@ class DocType(str, Enum):
     ORDINANCE = "ordinance"
     IMPLEMENTING_REGULATION = "implementing_regulation"
     LEGAL_ACT = "legal_act"
+
+
+# ---------------------------------------------------------------------------
+# Bulgarian ordinal-word → number mapping
+# (Sourced from law-hierarchy/patterns.py CHAPTER_PATTERNS / SECTION_PATTERNS)
+# ---------------------------------------------------------------------------
+
+# Feminine ordinals (used with "Глава", "Част")
+_ORDINALS_FEMININE: dict[str, str] = {
+    "първа": "1", "втора": "2", "трета": "3", "четвърта": "4",
+    "пета": "5", "шеста": "6", "седма": "7", "осма": "8",
+    "девета": "9", "десета": "10", "единадесета": "11",
+    "дванадесета": "12", "тринадесета": "13", "четиринадесета": "14",
+    "петнадесета": "15", "шестнадесета": "16", "седемнадесета": "17",
+    "осемнадесета": "18", "деветнадесета": "19", "двадесета": "20",
+    "двадесет и първа": "21", "двадесет и втора": "22",
+    "двадесет и трета": "23", "двадесет и четвърта": "24",
+    "двадесет и пета": "25", "двадесет и шеста": "26",
+    "двадесет и седма": "27", "двадесет и осма": "28",
+    "двадесет и девета": "29", "тридесета": "30",
+}
+
+# Masculine ordinals (used with "Дял", "Раздел", "Подраздел")
+_ORDINALS_MASCULINE: dict[str, str] = {
+    "първи": "1", "втори": "2", "трети": "3", "четвърти": "4",
+    "пети": "5", "шести": "6", "седми": "7", "осми": "8",
+    "девети": "9", "десети": "10", "единадесети": "11",
+    "дванадесети": "12", "тринадесети": "13", "четиринадесети": "14",
+    "петнадесети": "15", "шестнадесети": "16", "седемнадесети": "17",
+    "осемнадесети": "18", "деветнадесети": "19", "двадесети": "20",
+    "двадесет и първи": "21", "двадесет и втори": "22",
+    "двадесет и трети": "23", "двадесет и четвърти": "24",
+    "двадесет и пети": "25", "двадесет и шести": "26",
+    "двадесет и седми": "27", "двадесет и осми": "28",
+    "двадесет и девети": "29", "тридесети": "30",
+}
+
+# Roman numeral → Arabic number
+_ROMAN_MAP: dict[str, int] = {
+    "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+    "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+    "XI": 11, "XII": 12, "XIII": 13, "XIV": 14, "XV": 15,
+    "XVI": 16, "XVII": 17, "XVIII": 18, "XIX": 19, "XX": 20,
+    "XXI": 21, "XXII": 22, "XXIII": 23, "XXIV": 24, "XXV": 25,
+    "XXVI": 26, "XXVII": 27, "XXVIII": 28, "XXIX": 29, "XXX": 30,
+    # Cyrillic lookalikes often used in Bulgarian legal texts
+    "І": 1, "ІІ": 2, "ІІІ": 3, "ІV": 4,
+    "VІ": 6, "VІІ": 7, "VІІІ": 8, "ІХ": 9,
+    "ХІ": 11, "ХІІ": 12, "ХІІІ": 13, "ХІV": 14, "ХV": 15,
+}
+
+# Combined lookup (case-insensitive key → Arabic number string)
+_ALL_ORDINALS: dict[str, str] = {}
+for _d in (_ORDINALS_FEMININE, _ORDINALS_MASCULINE):
+    for _k, _v in _d.items():
+        _ALL_ORDINALS[_k.casefold()] = _v
+        _ALL_ORDINALS[_k.upper()] = _v
+
+# Roman regex for matching standalone Roman numerals
+RE_ROMAN = re.compile(
+    r"^(?:X{0,3})(?:IX|IV|V?I{0,3})$"
+    r"|^[ІХVX]+$",           # Cyrillic-mixed Roman
+)
+
+
+def ordinal_to_number(text: str) -> str | None:
+    """Convert a Bulgarian ordinal word or Roman numeral to an Arabic number.
+
+    Returns the number as a string, or ``None`` if *text* is not recognised.
+
+    Examples
+    --------
+    >>> ordinal_to_number("първа")
+    '1'
+    >>> ordinal_to_number("III")
+    '3'
+    >>> ordinal_to_number("ХІV")
+    '14'
+    """
+    clean = text.strip().rstrip(".")
+    # Try ordinal words first
+    result = _ALL_ORDINALS.get(clean.casefold()) or _ALL_ORDINALS.get(clean)
+    if result:
+        return result
+    # Try Roman numerals
+    roman_val = _ROMAN_MAP.get(clean)
+    if roman_val is not None:
+        return str(roman_val)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Text normalization (ported from law-hierarchy/tree_builder.py)
+# ---------------------------------------------------------------------------
+
+def normalize_structural_text(text: str) -> str:
+    """Clean structural heading text.
+
+    * Fix soft-hyphenation artifacts (``"ДО- СТЪП"`` → ``"ДОСТЪП"``).
+    * Separate glued ALL-CAPS prepositions (``"ПРОЦЕСУАЛЕНЗАКОННИК"``).
+    * Collapse whitespace.
+
+    Ported from ``law-hierarchy/tree_builder.py:_normalize_structural_text``.
+    """
+    t = (text or "").strip()
+    if not t:
+        return t
+
+    # Fix soft-hyphenation artifacts
+    t = re.sub(r"([А-Яа-я]{2,})-\s+([А-Яа-я]{2,})", r"\1\2", t)
+
+    # Collapse whitespace
+    t = re.sub(r"\s+", " ", t).strip()
+
+    return t

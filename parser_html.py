@@ -19,6 +19,8 @@ from config import (
     HIERARCHY_ORDER,
     ARTICLE_INTERNAL_HIERARCHY,
     NodeType,
+    ordinal_to_number,
+    normalize_structural_text,
 )
 from models import Node, ItemCounter
 
@@ -107,39 +109,27 @@ def _extract_item_from_text(text: str, node_type: str) -> tuple[str | None, str,
     * *remaining_title* is the title portion (for structural elements)
     * *remaining_content* is the content text (after the item marker)
     """
-    if node_type == NodeType.CHAPTER:
-        m = RE_CHAPTER.match(text)
-        if m:
-            rest = text[m.end():]
-            # "първа.\nЗАДАЧА И ПРЕДЕЛИ..." → item from ordinal, title is the rest
-            parts = re.split(r"\.\s*", rest, maxsplit=1)
-            ordinal = parts[0].strip() if parts else rest.strip()
-            title = parts[1].strip() if len(parts) > 1 else None
-            return ordinal, title or "", ""
-    elif node_type == NodeType.PARTITION:
-        m = RE_PARTITION.match(text)
-        if m:
-            rest = text[m.end():]
-            parts = re.split(r"\.\s*", rest, maxsplit=1)
-            ordinal = parts[0].strip() if parts else rest.strip()
-            title = parts[1].strip() if len(parts) > 1 else None
-            return ordinal, title or "", ""
-    elif node_type == NodeType.SECTION:
-        m = RE_SECTION_PREFIX.match(text)
+    # Map node types to their prefix regex
+    _PREFIX_MAP = {
+        NodeType.CHAPTER: RE_CHAPTER,
+        NodeType.PARTITION: RE_PARTITION,
+        NodeType.SECTION: RE_SECTION_PREFIX,
+        NodeType.SUBSECTION: RE_SUBSECTION,
+    }
+    regex = _PREFIX_MAP.get(node_type)
+    if regex is not None:
+        m = regex.match(text)
         if m:
             rest = text[m.end():]
             parts = re.split(r"\.\s*", rest, maxsplit=1)
-            number = parts[0].strip() if parts else rest.strip()
+            raw_ordinal = parts[0].strip() if parts else rest.strip()
             title = parts[1].strip() if len(parts) > 1 else None
-            return number, title or "", ""
-    elif node_type == NodeType.SUBSECTION:
-        m = RE_SUBSECTION.match(text)
-        if m:
-            rest = text[m.end():]
-            parts = re.split(r"\.\s*", rest, maxsplit=1)
-            ordinal = parts[0].strip() if parts else rest.strip()
-            title = parts[1].strip() if len(parts) > 1 else None
-            return ordinal, title or "", ""
+            # Convert ordinal word / Roman numeral → Arabic number
+            numeric = ordinal_to_number(raw_ordinal)
+            item = numeric if numeric else raw_ordinal
+            if title:
+                title = normalize_structural_text(title)
+            return item, title or "", ""
 
     return None, text, ""
 

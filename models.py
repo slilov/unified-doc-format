@@ -120,6 +120,17 @@ class ItemCounter:
 # ── UID helpers ───────────────────────────────────────────────────────────
 
 
+def _ensure_str_value(val: str) -> str:
+    """Ensure enum members are converted to their string value.
+
+    ``str(NodeType.PART)`` returns ``'NodeType.PART'`` on Python < 3.11,
+    but we always want the plain value ``'part'``.
+    """
+    if hasattr(val, "value"):
+        return str(val.value)
+    return str(val)
+
+
 def build_uid(
     source: str,
     doc_id: str,
@@ -148,8 +159,8 @@ def build_uid(
     """
     parts = [source, doc_id]
     for t, i in ancestor_pairs:
-        parts.append(f"{t}{UID_TYPE_ITEM_SEP}{i}")
-    parts.append(f"{node_type}{UID_TYPE_ITEM_SEP}{node_item}")
+        parts.append(f"{_ensure_str_value(t)}{UID_TYPE_ITEM_SEP}{i}")
+    parts.append(f"{_ensure_str_value(node_type)}{UID_TYPE_ITEM_SEP}{node_item}")
     return UID_LEVEL_SEP.join(parts)
 
 
@@ -165,7 +176,8 @@ def generate_uids(
 
     for node in nodes:
         item = node.item or "0"
-        node.uid = build_uid(source, doc_id, ancestor_pairs, node.type, item)
+        node_type_str = _ensure_str_value(node.type)
+        node.uid = build_uid(source, doc_id, ancestor_pairs, node_type_str, item)
         if node.children:
-            child_ancestors = ancestor_pairs + [(node.type, item)]
+            child_ancestors = ancestor_pairs + [(node_type_str, item)]
             generate_uids(node.children, source, doc_id, child_ancestors)
