@@ -30,13 +30,91 @@ from parser import BaseParser
 
 # ── Regex patterns for Markdown elements ──────────────────────────────────
 
+# Strip HTML tags and Markdown bold/italic markers for matching purposes
+_RE_HTML_TAG = re.compile(r"<[^>]+>")
+_RE_MD_BOLD3 = re.compile(r"\*{3}(.+?)\*{3}")   # ***bold+italic***
+_RE_MD_BOLD2 = re.compile(r"\*{2}(.+?)\*{2}")   # **bold**
+_RE_MD_ITALIC = re.compile(r"\*(.+?)\*")          # *italic*
+
+
+def strip_markup(text: str) -> str:
+    """Remove HTML tags, Markdown bold/italic, and collapse whitespace."""
+    text = _RE_HTML_TAG.sub("", text)
+    text = _RE_MD_BOLD3.sub(r"\1", text)
+    text = _RE_MD_BOLD2.sub(r"\1", text)
+    text = _RE_MD_ITALIC.sub(r"\1", text)
+    return " ".join(text.split()).strip()
+
+
+def _has_markup(text: str) -> bool:
+    """Return True if *text* contains HTML tags or Markdown bold/italic."""
+    return bool(
+        _RE_HTML_TAG.search(text)
+        or _RE_MD_BOLD2.search(text)
+        or _RE_MD_ITALIC.search(text)
+    )
+
+
 # Any Markdown heading level 2+ (captures text after the ## markers)
 RE_HEADING = re.compile(r"^#{2,}\s+(.+)")
+
+# ── <br/> tag (used inside centered headings to separate item from title) ──
+_RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+# Centered paragraph heading: <p align="center"><b>...</b></p>
+RE_CENTER_HEADING = re.compile(
+    r'^<p\s+align="center">\s*<b>(.*?)</b>\s*</p>$',
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Bold-only line: **text** (used for EU legislation title, etc.)
+RE_BOLD_LINE = re.compile(r"^\*\*(.+?)\*\*$")
+
+
+def _match_heading_text(stripped: str) -> str | None:
+    """Try to extract heading text from ``## …`` or ``<p align=center><b>…</b></p>``.
+
+    Returns the clean text (``<br/>`` replaced by space, no HTML tags)
+    or *None* if the line is not a heading.
+    """
+    m = RE_HEADING.match(stripped)
+    if m:
+        return m.group(1).strip()
+    m = RE_CENTER_HEADING.match(stripped)
+    if m:
+        text = _RE_BR.sub(" ", m.group(1))
+        return text.strip()
+    return None
+
+
+def _is_structural_start(stripped: str) -> bool:
+    """Return True if *stripped* opens a new structural unit.
+
+    Recognised openers:
+    * ``##`` headings or ``<p align="center"><b>…</b></p>``
+    * Article ``Чл. N.``  (plain or bold)
+    * Clause  ``§ N.``    (plain or bold)
+    * Dot separators ``. . .``
+    * Bold lines matching EU-legislation or provision keywords
+    """
+    if _match_heading_text(stripped) is not None:
+        return True
+    if RE_DOTS.match(stripped):
+        return True
+    clean = strip_markup(stripped)
+    if RE_ARTICLE_NUM.match(clean) or RE_CLAUSE.match(clean):
+        return True
+    m = RE_BOLD_LINE.match(stripped)
+    if m:
+        inner = strip_markup(m.group(1))
+        if RE_EU_LEGISLATION_TEXT.search(inner) or RE_PROVISION_TEXT.search(inner):
+            return True
+    return False
 
 # ── Text-based type detection for structural headings ─────────────────────
 # The parser does NOT rely on heading level — type is inferred from text.
 
-RE_PART_TEXT = re.compile(r"^Част\s+", re.IGNORECASE)
+RE_PART_TEXT = re.compile(r"(?:^Част\s+|\bЧаст\b)", re.IGNORECASE)
 RE_PARTITION_TEXT = re.compile(r"^Дял\s+", re.IGNORECASE)
 RE_CHAPTER_TEXT = re.compile(r"^Глава\s+", re.IGNORECASE)
 RE_SECTION_TEXT = re.compile(r"^Раздел\s+", re.IGNORECASE)
@@ -64,10 +142,14 @@ RE_MD_TITLE = re.compile(r"^#\s+(.+)")
 # Metadata comments
 RE_SOURCE = re.compile(r"^<!--\s*source:\s*(.+?)\s*-->$", re.DOTALL)
 RE_DOC_ID = re.compile(r"^<!--\s*doc_id:\s*(.+?)\s*-->$", re.DOTALL)
-# Explanation: starts with "В сила от" ("In force since")
-RE_EXPLANATION = re.compile(r"^(В сила от\s+.+)$")
+# Explanation: starts with "В сила от" ("In force since"), optional italic *…*
+RE_EXPLANATION = re.compile(r"^\*?(В сила от\s+.+?)\*?$")
 # History: starts with gazette references like "Обн. ДВ.", "Изм. ДВ.", etc.
-RE_HISTORY = re.compile(r"^((?:Обн|Изм|Доп|Попр)\.\s*ДВ\.\s*.+)$")
+RE_HISTORY = re.compile(r"^\*?((?:Обн|Изм|Доп|Попр)\.\s*ДВ\.\s*.+?)\*?$")
+# <small> metadata line (skipped)
+RE_SMALL_LINE = re.compile(r"^<small>.*</small>$", re.IGNORECASE)
+# Horizontal rule --- (skipped)
+RE_HR = re.compile(r"^-{3,}$")
 
 # Article-level elements (inside plain text lines)
 RE_ARTICLE_NUM = re.compile(r"^Чл\.\s*(\d+[а-я]?)\.\s*(.*)", re.DOTALL)
@@ -215,7 +297,19 @@ class MarkdownParser(BaseParser):
         return meta
 
     def _extract_document_tree(self) -> list[Node]:
-        return self._build_tree()
+        nodes = self._build_tree()
+        self._populate_html_content(nodes)
+        return nodes
+
+    @staticmethod
+    def _populate_html_content(nodes: list[Node]) -> None:
+        """Walk the tree: where *content* has HTML/Markdown markup, move the
+        original to *html_content* and replace *content* with plain text."""
+        for node in nodes:
+            if node.content and _has_markup(node.content):
+                node.html_content = node.content
+                node.content = strip_markup(node.content)
+            MarkdownParser._populate_html_content(node.children)
 
     # ── front-matter parsing ──────────────────────────────────────────────
 
@@ -224,6 +318,10 @@ class MarkdownParser(BaseParser):
         for line in self._lines:
             stripped = line.strip()
             if not stripped:
+                continue
+
+            # Skip horizontal rules and <small> metadata lines
+            if RE_HR.match(stripped) or RE_SMALL_LINE.match(stripped):
                 continue
 
             m = RE_SOURCE.match(stripped)
@@ -251,11 +349,12 @@ class MarkdownParser(BaseParser):
                 self._history = m.group(1).strip()
                 continue
 
-            # Stop at first structural element
-            if stripped.startswith("##"):
+            # Stop at first structural element (heading or centered <p>)
+            if stripped.startswith("##") or RE_CENTER_HEADING.match(stripped):
                 break
-            # Stop at first article line
-            if RE_ARTICLE_NUM.match(stripped):
+            # Stop at first article line (plain or bold)
+            plain = strip_markup(stripped)
+            if RE_ARTICLE_NUM.match(plain):
                 break
 
     # ── tree building ─────────────────────────────────────────────────────
@@ -292,11 +391,14 @@ class MarkdownParser(BaseParser):
             if RE_HISTORY.match(stripped):
                 i += 1
                 continue
+            # <small>…</small> metadata and --- horizontal rules (skip)
+            if RE_SMALL_LINE.match(stripped) or RE_HR.match(stripped):
+                i += 1
+                continue
 
-            # ── Structural heading (any ## level) — type from text ──
-            m = RE_HEADING.match(stripped)
-            if m:
-                h_text = m.group(1).strip()
+            # ── Structural heading (## … or <p align="center"><b>…</b></p>) ──
+            h_text = _match_heading_text(stripped)
+            if h_text is not None:
 
                 # EU legislation block
                 if RE_EU_LEGISLATION_TEXT.search(h_text):
@@ -327,8 +429,8 @@ class MarkdownParser(BaseParser):
                     i += 1
                     continue
 
-                # Part ("Част ..." or ALL-CAPS text)
-                if RE_PART_TEXT.match(h_text):
+                # Part ("Част ..." or text containing "част")
+                if RE_PART_TEXT.search(h_text):
                     current_provision = None
                     raw_title = normalize_structural_text(h_text)
                     item_num, title_text = _extract_heading_item(raw_title, RE_PART_NUM)
@@ -414,24 +516,7 @@ class MarkdownParser(BaseParser):
                     i += 1
                     continue
 
-                # ALL-CAPS text → Part
-                alpha = [c for c in h_text if c.isalpha()]
-                if alpha and sum(1 for c in alpha if c.isupper()) / len(alpha) > 0.7:
-                    current_provision = None
-                    raw_title = normalize_structural_text(h_text)
-                    item_num = counter.next_item(NodeType.PART)
-                    counter.reset_lower(NodeType.PART)
-                    node = Node(
-                        type=NodeType.PART,
-                        title=raw_title,
-                        item=str(item_num),
-                    )
-                    self._push_structural(node, 0, struct_stack, root_nodes, counter)
-                    i += 1
-                    continue
-
                 # Fallback: generic heading
-                current_provision = None
                 raw_title = normalize_structural_text(h_text)
                 item = counter.next_item(NodeType.HEADING)
                 node = Node(
@@ -439,7 +524,15 @@ class MarkdownParser(BaseParser):
                     title=raw_title,
                     item=item,
                 )
-                self._push_structural(node, 5, struct_stack, root_nodes, counter)
+                if current_provision is not None:
+                    # Sub-heading within a provision — attach as child
+                    current_provision.children.append(node)
+                    # Push to stack so articles/clauses go under this heading
+                    while struct_stack and struct_stack[-1][1] >= 5:
+                        struct_stack.pop()
+                    struct_stack.append((node, 5))
+                else:
+                    self._push_structural(node, 5, struct_stack, root_nodes, counter)
                 i += 1
                 continue
 
@@ -448,8 +541,11 @@ class MarkdownParser(BaseParser):
                 i += 1
                 continue
 
-            # ── Clause (§ N.) — used inside provisions ──
-            m = RE_CLAUSE.match(stripped)
+            # ── strip markup for article/clause matching ──
+            clean = strip_markup(stripped)
+
+            # ── Clause (§ N.) — used inside provisions (plain or bold) ──
+            m = RE_CLAUSE.match(clean)
             if m:
                 clause_item = m.group(1)
                 clause_rest = m.group(2).strip()
@@ -459,8 +555,8 @@ class MarkdownParser(BaseParser):
                 )
                 continue
 
-            # ── Article (Чл. N.) ──
-            m = RE_ARTICLE_NUM.match(stripped)
+            # ── Article (Чл. N.) — plain or bold ──
+            m = RE_ARTICLE_NUM.match(clean)
             if m:
                 art_item = m.group(1)
                 art_rest = m.group(2).strip()
@@ -470,8 +566,39 @@ class MarkdownParser(BaseParser):
                 )
                 continue
 
+            # ── Bold-only line: EU legislation or provision ──
+            m = RE_BOLD_LINE.match(stripped)
+            if m:
+                bold_inner = strip_markup(m.group(1))
+                if RE_EU_LEGISLATION_TEXT.search(bold_inner):
+                    eu_node = Node(
+                        type=NodeType.EU_LEGISLATION_RELEVANCE,
+                        title=normalize_structural_text(bold_inner),
+                    )
+                    i = self._parse_eu_legislation(eu_node, i + 1)
+                    root_nodes.append(eu_node)
+                    continue
+                if RE_PROVISION_TEXT.search(bold_inner):
+                    title_text = normalize_structural_text(bold_inner)
+                    item = counter.next_item(NodeType.PROVISION)
+                    node = Node(
+                        type=NodeType.PROVISION,
+                        title=title_text,
+                        item=item,
+                    )
+                    while struct_stack and struct_stack[-1][1] > 0:
+                        struct_stack.pop()
+                    if struct_stack and struct_stack[-1][1] == 0:
+                        struct_stack[-1][0].children.append(node)
+                    else:
+                        root_nodes.append(node)
+                    current_provision = node
+                    i += 1
+                    continue
+                continue
+
             # ── standalone paragraph outside article (provision body text) ──
-            m = RE_PARAGRAPH.match(stripped)
+            m = RE_PARAGRAPH.match(clean)
             if m and current_provision is not None:
                 # Provision may have standalone paragraphs (e.g. "(ОБН. - ДВ, ...)")
                 # Treat as plain content of the provision
@@ -556,22 +683,31 @@ class MarkdownParser(BaseParser):
                 i += 1
                 continue
 
-            # Category heading (Директиви, Регламенти, etc.)
+            # Category heading — ## heading or bold line **<u>Директиви:</u>**
+            cat_label: str | None = None
             m = RE_HEADING.match(stripped)
             if m:
-                h_text = m.group(1).strip()
-                # Check if this is a known EU category label
-                eu_tag = _EU_CATEGORY_LABELS.get(h_text)
+                cat_label = m.group(1).strip()
+            else:
+                m = RE_BOLD_LINE.match(stripped)
+                if m:
+                    cat_label = strip_markup(m.group(1)).rstrip(":")
+            if cat_label is not None:
+                eu_tag = _EU_CATEGORY_LABELS.get(cat_label)
                 if eu_tag:
                     node_type = self._EU_TAG_TO_TYPE[eu_tag]
                     current_category = Node(
                         type=node_type,
-                        title=h_text,
+                        title=cat_label,
                     )
                     eu_node.children.append(current_category)
                     i += 1
                     continue
-                # Other heading → end of EU block
+                # Non-category heading/bold → end of EU block
+                break
+
+            # Structural boundary → end of EU block
+            if _is_structural_start(stripped):
                 break
 
             # Regular item line → create item node under current category
@@ -610,11 +746,14 @@ class MarkdownParser(BaseParser):
             title=f"Чл. {art_item}",
         )
 
-        # Attach to parent structural node or root
-        if struct_stack:
+        # Attach to heading within provision, provision itself, or structural parent
+        if struct_stack and struct_stack[-1][1] >= 5:
+            # Heading on stack (within a provision or standalone)
             struct_stack[-1][0].children.append(art_node)
         elif current_provision is not None:
             current_provision.children.append(art_node)
+        elif struct_stack:
+            struct_stack[-1][0].children.append(art_node)
         else:
             root_nodes.append(art_node)
 
@@ -645,22 +784,14 @@ class MarkdownParser(BaseParser):
                 if j >= len(self._lines):
                     break
                 next_stripped = self._lines[j].strip()
-                if (next_stripped.startswith("##") or
-                        RE_ARTICLE_NUM.match(next_stripped) or
-                        RE_CLAUSE.match(next_stripped) or
-                        RE_DOTS.match(next_stripped)):
+                if _is_structural_start(next_stripped):
                     break
                 # Otherwise it's a continuation (multi-paragraph article)
                 i += 1
                 continue
 
             # Structural markers end the article
-            if (stripped.startswith("##") or
-                    RE_DOTS.match(stripped)):
-                break
-
-            # A new article or clause ends this one
-            if RE_ARTICLE_NUM.match(stripped) or RE_CLAUSE.match(stripped):
+            if _is_structural_start(stripped):
                 break
 
             art_lines.append(stripped)
@@ -945,8 +1076,11 @@ class MarkdownParser(BaseParser):
             title=f"§ {clause_item}",
         )
 
-        # Attach to provision or root
-        if current_provision is not None:
+        # Attach to heading within provision, provision itself, or root
+        if struct_stack and struct_stack[-1][1] >= 5:
+            # Heading on stack (within or outside a provision)
+            struct_stack[-1][0].children.append(clause_node)
+        elif current_provision is not None:
             current_provision.children.append(clause_node)
         elif struct_stack:
             struct_stack[-1][0].children.append(clause_node)
@@ -970,19 +1104,12 @@ class MarkdownParser(BaseParser):
                 if j >= len(self._lines):
                     break
                 next_stripped = self._lines[j].strip()
-                if (next_stripped.startswith("##") or
-                        RE_ARTICLE_NUM.match(next_stripped) or
-                        RE_CLAUSE.match(next_stripped) or
-                        RE_DOTS.match(next_stripped)):
+                if _is_structural_start(next_stripped):
                     break
                 i += 1
                 continue
 
-            if (stripped.startswith("##") or
-                    RE_DOTS.match(stripped)):
-                break
-
-            if RE_ARTICLE_NUM.match(stripped) or RE_CLAUSE.match(stripped):
+            if _is_structural_start(stripped):
                 break
 
             clause_lines.append(stripped)
