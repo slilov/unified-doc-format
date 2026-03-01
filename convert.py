@@ -12,14 +12,17 @@ Pipeline
 
 Usage
 -----
-    # Full pipeline: HTML → MD → JSON
+    # Full pipeline: HTML → MD → JSON (source & doc_id embedded in MD)
     python convert.py --file input_docs/document.html --source lex.bg --doc-id НК
 
-    # All HTML files in input_docs/:
-    python convert.py --source lex.bg --doc-id НК
+    # All HTML files in input_docs/ (source defaults to lex.bg):
+    python convert.py --doc-id НК
 
-    # MD-only (skip source conversion if .md already exists):
-    python convert.py --file output_md/document.md --source lex.bg --doc-id НК --md-only
+    # Without --doc-id: derived automatically from the document title
+    python convert.py --file input_docs/document.html
+
+    # MD-only (source & doc_id read from the .md file itself):
+    python convert.py --file output_md/document.md --md-only
 """
 
 from __future__ import annotations
@@ -42,8 +45,15 @@ SOURCE_CONVERTERS: dict[str, type] = {
 }
 
 
-def convert_html_to_md(file_path: Path, source: str) -> Path:
+def convert_html_to_md(
+    file_path: Path,
+    source: str,
+    doc_id: str,
+) -> Path:
     """Step 1: Convert a source file to Markdown.
+
+    *source* and *doc_id* are embedded into the MD as HTML comments
+    so that the file is self-contained.
 
     Returns the path to the generated .md file.
     """
@@ -57,7 +67,7 @@ def convert_html_to_md(file_path: Path, source: str) -> Path:
         sys.exit(1)
 
     converter = converter_cls()
-    md_text = converter.convert(file_path)
+    md_text = converter.convert(file_path, source=source, doc_id=doc_id)
 
     OUTPUT_MD_DIR.mkdir(parents=True, exist_ok=True)
     md_path = OUTPUT_MD_DIR / (file_path.stem + ".md")
@@ -66,8 +76,15 @@ def convert_html_to_md(file_path: Path, source: str) -> Path:
     return md_path
 
 
-def convert_md_to_json(md_path: Path, source: str, doc_id: str) -> Path:
+def convert_md_to_json(
+    md_path: Path,
+    source: str = "",
+    doc_id: str = "",
+) -> Path:
     """Step 2: Parse Markdown and produce the unified JSON.
+
+    *source* and *doc_id* are optional overrides — the parser
+    will read them from the MD file if not provided.
 
     Returns the path to the generated .json file.
     """
@@ -86,8 +103,8 @@ def convert_md_to_json(md_path: Path, source: str, doc_id: str) -> Path:
 
 def convert_file(
     file_path: Path,
-    source: str,
-    doc_id: str,
+    source: str = "",
+    doc_id: str = "",
     *,
     md_only: bool = False,
 ) -> None:
@@ -98,7 +115,7 @@ def convert_file(
         # Skip step 1 — assume the file is already Markdown
         md_path = file_path
     else:
-        md_path = convert_html_to_md(file_path, source)
+        md_path = convert_html_to_md(file_path, source or "lex.bg", doc_id)
 
     convert_md_to_json(md_path, source, doc_id)
 
@@ -124,8 +141,9 @@ def main() -> None:
     ap.add_argument(
         "--doc-id",
         type=str,
-        required=True,
-        help="Document identifier (e.g. 'НК').",
+        default="",
+        help="Document identifier (e.g. 'НК'). If omitted, read from MD "
+             "or derived from the title.",
     )
     ap.add_argument(
         "--md-only",

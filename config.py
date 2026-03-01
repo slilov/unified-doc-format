@@ -124,42 +124,11 @@ TOC_TYPES: set[str] = {
 }
 
 # ---------------------------------------------------------------------------
-# CSS class → NodeType mapping for lex.bg HTML documents
-# ---------------------------------------------------------------------------
-
-CSS_CLASS_MAP: dict[str, str] = {
-    "TitleDocument": "_title_document",      # special handling
-    "PreHistory": "_pre_history",            # special handling
-    "HistoryOfDocument": "_history_document", # special handling
-    "Heading": "_heading_ambiguous",         # resolved by text content
-    "Section": NodeType.SECTION,
-    "Article": NodeType.ARTICLE,
-    "TransitionalFinalEdicts": NodeType.PROVISION,
-    "FinalEdicts": NodeType.PROVISION,
-    "AdditionalEdicts": NodeType.PROVISION,
-    "FinalEdictsArticle": NodeType.CLAUSE,
-}
-
-# ---------------------------------------------------------------------------
 # UID format constants
 # ---------------------------------------------------------------------------
 
 UID_LEVEL_SEP = "___"   # separator between hierarchy levels
 UID_TYPE_ITEM_SEP = "__" # separator between type and item within a level
-
-
-# ---------------------------------------------------------------------------
-# Document types (top-level type of the legal act)
-# ---------------------------------------------------------------------------
-
-class DocType(str, Enum):
-    CONSTITUTION = "constitution"
-    LAW = "law"
-    CODE = "code"
-    REGULATION = "regulation"
-    ORDINANCE = "ordinance"
-    IMPLEMENTING_REGULATION = "implementing_regulation"
-    LEGAL_ACT = "legal_act"
 
 
 # ---------------------------------------------------------------------------
@@ -217,13 +186,6 @@ for _d in (_ORDINALS_FEMININE, _ORDINALS_MASCULINE):
     for _k, _v in _d.items():
         _ALL_ORDINALS[_k.casefold()] = _v
         _ALL_ORDINALS[_k.upper()] = _v
-
-# Roman regex for matching standalone Roman numerals
-RE_ROMAN = re.compile(
-    r"^(?:X{0,3})(?:IX|IV|V?I{0,3})$"
-    r"|^[ІХVX]+$",           # Cyrillic-mixed Roman
-)
-
 
 def ordinal_to_number(text: str) -> str | None:
     """Convert a Bulgarian ordinal word or Roman numeral to an Arabic number.

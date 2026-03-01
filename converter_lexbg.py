@@ -93,21 +93,48 @@ def _first_css(div: Tag) -> str:
 class LexbgHtmlToMarkdown:
     """Convert a lex.bg HTML file to the canonical Markdown format."""
 
-    def convert(self, file_path: str | Path) -> str:
-        """Return the Markdown string for *file_path*."""
+    # Default source identifier for lex.bg documents
+    SOURCE = "lex.bg"
+
+    def convert(
+        self,
+        file_path: str | Path,
+        *,
+        source: str = "",
+        doc_id: str = "",
+    ) -> str:
+        """Return the Markdown string for *file_path*.
+
+        Parameters
+        ----------
+        source : str
+            Document source identifier written into the MD.
+            Defaults to ``self.SOURCE`` (``"lex.bg"``).
+        doc_id : str
+            Short document identifier (e.g. ``"НК"``).  If empty,
+            the parser will derive one from the title.
+        """
         path = Path(file_path)
         html = path.read_text(encoding="utf-8")
         self._soup = BeautifulSoup(html, "lxml")
         lines: list[str] = []
 
-        self._convert_metadata(lines)
+        self._convert_metadata(lines, source=source or self.SOURCE, doc_id=doc_id)
         self._convert_body(lines)
 
         return "\n".join(lines) + "\n"
 
     # ── metadata ──
 
-    def _convert_metadata(self, lines: list[str]) -> None:
+    def _convert_metadata(
+        self, lines: list[str], *, source: str, doc_id: str,
+    ) -> None:
+        # Source & doc_id — always first so the MD file is self-contained
+        lines.append(f"<!-- source: {source} -->")
+        if doc_id:
+            lines.append(f"<!-- doc_id: {doc_id} -->")
+        lines.append("")
+
         title_div = self._soup.find("div", class_="TitleDocument")
         if title_div:
             lines.append(f"# {_text(title_div)}")
@@ -321,10 +348,14 @@ def main() -> None:
     )
     ap.add_argument("file", help="Path to the HTML file.")
     ap.add_argument("-o", "--output", help="Output .md file (default: stdout).")
+    ap.add_argument("-s", "--source", default="",
+                    help="Source identifier (default: lex.bg).")
+    ap.add_argument("-d", "--doc-id", default="",
+                    help="Document id (e.g. 'НК').")
     args = ap.parse_args()
 
     converter = LexbgHtmlToMarkdown()
-    md = converter.convert(args.file)
+    md = converter.convert(args.file, source=args.source, doc_id=args.doc_id)
 
     if args.output:
         Path(args.output).write_text(md, encoding="utf-8")

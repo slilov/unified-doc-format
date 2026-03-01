@@ -1,9 +1,8 @@
 """
 Abstract base parser for the unified legal document format.
 
-Concrete subclasses (``HtmlParser``, future ``PdfParser``) implement the
-document-specific extraction logic while inheriting common UID generation
-and table-of-contents generation.
+Concrete subclass ``MarkdownParser`` implements the extraction logic while
+inheriting common UID generation and table-of-contents generation.
 """
 
 from __future__ import annotations

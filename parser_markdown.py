@@ -43,6 +43,8 @@ RE_MD_PROVISION = re.compile(r"^##\s+PROVISION:\s*(.+)", re.DOTALL)
 RE_MD_TITLE = re.compile(r"^#\s+(.+)")
 
 # Metadata comments
+RE_SOURCE = re.compile(r"^<!--\s*source:\s*(.+?)\s*-->$", re.DOTALL)
+RE_DOC_ID = re.compile(r"^<!--\s*doc_id:\s*(.+?)\s*-->$", re.DOTALL)
 RE_EXPLANATION = re.compile(r"^<!--\s*explanation:\s*(.+?)\s*-->$", re.DOTALL)
 RE_HISTORY = re.compile(r"^<!--\s*history:\s*(.+?)\s*-->$", re.DOTALL)
 RE_EU_LEGISLATION = re.compile(r"^<!--\s*eu_legislation:\s*(.+?)\s*-->$", re.DOTALL)
@@ -122,6 +124,8 @@ class MarkdownParser(BaseParser):
     def __init__(self) -> None:
         self._lines: list[str] = []
         self._title: str = ""
+        self._md_source: str = ""
+        self._md_doc_id: str = ""
         self._explanation: str = ""
         self._history: str = ""
         self._eu_legislation: str = ""
@@ -131,15 +135,55 @@ class MarkdownParser(BaseParser):
     def parse(
         self,
         file_path: str | Path,
-        source: str,
-        doc_id: str,
+        source: str = "",
+        doc_id: str = "",
     ) -> dict[str, Any]:
-        """Override to inject eu_legislation discovered during tree parsing."""
-        result = super().parse(file_path, source, doc_id)
-        # eu_legislation is a comment at the end of the file, discovered
-        # during _build_tree (after _extract_metadata already ran).
-        if self._eu_legislation and "eu_legislation" not in result["metadata"]:
+        """Override to resolve source/doc_id from the MD file and inject
+        eu_legislation discovered during tree parsing.
+
+        *source* and *doc_id* passed here act as overrides; if empty,
+        values embedded in the Markdown (``<!-- source: … -->``,
+        ``<!-- doc_id: … -->``) are used.  If *doc_id* is still empty
+        after that, it is derived from the document title.
+        """
+        # _extract_metadata (called by super) reads the file and populates
+        # self._md_source / self._md_doc_id from the HTML comments.
+        effective_source = source or ""   # will be resolved after metadata
+        effective_doc_id = doc_id or ""    # will be resolved after metadata
+
+        # Let super read the file and build the tree
+        self._file_path = Path(file_path)
+        self._source = effective_source
+        self._doc_id = effective_doc_id
+
+        metadata = self._extract_metadata()
+
+        # Resolve source and doc_id
+        effective_source = source or self._md_source
+        if not effective_source:
+            effective_source = "unknown"
+        effective_doc_id = doc_id or self._md_doc_id
+        if not effective_doc_id:
+            effective_doc_id = _derive_doc_id(self._title)
+
+        self._source = effective_source
+        self._doc_id = effective_doc_id
+        metadata["source"] = effective_source
+        metadata["doc_id"] = effective_doc_id
+
+        document_tree = self._extract_document_tree()
+        generate_uids(document_tree, effective_source, effective_doc_id)
+        toc = self._generate_toc(document_tree)
+
+        result = {
+            "metadata": metadata,
+            "table_of_contents": toc,
+            "document": [n.to_dict() for n in document_tree],
+        }
+
+        if self._eu_legislation:
             result["metadata"]["eu_legislation"] = self._eu_legislation
+
         return result
 
     def _extract_metadata(self) -> dict[str, Any]:
@@ -158,10 +202,20 @@ class MarkdownParser(BaseParser):
     # ── front-matter parsing ──────────────────────────────────────────────
 
     def _parse_front_matter(self) -> None:
-        """Extract title, explanation, history from the top of the file."""
+        """Extract source, doc_id, title, explanation, history from the top."""
         for line in self._lines:
             stripped = line.strip()
             if not stripped:
+                continue
+
+            m = RE_SOURCE.match(stripped)
+            if m:
+                self._md_source = m.group(1).strip()
+                continue
+
+            m = RE_DOC_ID.match(stripped)
+            if m:
+                self._md_doc_id = m.group(1).strip()
                 continue
 
             m = RE_MD_TITLE.match(stripped)
@@ -820,28 +874,17 @@ def main() -> None:
     ap.add_argument("file", help="Path to the Markdown file.")
     ap.add_argument("-o", "--output", help="Output JSON file (default: stdout).")
     ap.add_argument(
-        "-s", "--source", default="lex.bg",
-        help="Document source identifier (default: lex.bg).",
+        "-s", "--source", default="",
+        help="Document source identifier (overrides value in MD).",
     )
     ap.add_argument(
         "-d", "--doc-id", default="",
-        help="Document id (default: derived from title).",
+        help="Document id (overrides value in MD; if absent, derived from title).",
     )
     args = ap.parse_args()
 
     parser = MarkdownParser()
-    result = parser.parse(args.file, source=args.source, doc_id=args.doc_id or "")
-
-    # If doc_id was not given, derive from title
-    if not args.doc_id:
-        title = result.get("metadata", {}).get("title", "")
-        # Use acronym or short form
-        doc_id = _derive_doc_id(title)
-        # Re-generate UIDs with the proper doc_id
-        tree = parser._extract_document_tree()
-        generate_uids(tree, args.source, doc_id)
-        result["document"] = [n.to_dict() for n in tree]
-        result["table_of_contents"] = parser._generate_toc(tree)
+    result = parser.parse(args.file, source=args.source, doc_id=args.doc_id)
 
     out = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
