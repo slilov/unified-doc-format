@@ -25,7 +25,7 @@ from config import (
     normalize_structural_text,
 )
 from models import Node, ItemCounter, generate_uids
-from base_parser import BaseParser
+from parser import BaseParser
 
 
 # ── Regex patterns for Markdown elements ──────────────────────────────────
