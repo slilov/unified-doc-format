@@ -81,12 +81,9 @@ class BaseParser(ABC):
                     continue
                 entry: dict[str, Any] = {
                     "uid": node.uid,
-                    "type": node.type,
                 }
                 if node.title is not None:
                     entry["title"] = node.title
-                if node.item is not None:
-                    entry["item"] = node.item
                 child_entries = _walk(node.children)
                 if child_entries:
                     entry["children"] = child_entries
