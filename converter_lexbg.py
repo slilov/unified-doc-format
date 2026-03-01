@@ -14,7 +14,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import sys
+import urllib.request
+
 from bs4 import BeautifulSoup, Tag, NavigableString
+from table_normalizer import normalize_tables_in_html
 
 
 # ── regex helpers ─────────────────────────────────────────────────────────
@@ -102,6 +106,7 @@ class LexbgHtmlToMarkdown:
         *,
         source: str = "",
         doc_id: str = "",
+        images_dir: str | Path | None = None,
     ) -> str:
         """Return the Markdown string for *file_path*.
 
@@ -113,16 +118,43 @@ class LexbgHtmlToMarkdown:
         doc_id : str
             Short document identifier (e.g. ``"НК"``).  If empty,
             the parser will derive one from the title.
+        images_dir : path, optional
+            Directory to download content images into.  When set,
+            images are referenced as ``images/{doc_stem}/{file}``;
+            when *None*, original URLs are kept.
         """
         path = Path(file_path)
-        html = path.read_text(encoding="utf-8")
-        self._soup = BeautifulSoup(html, "lxml")
-        lines: list[str] = []
+        self._doc_stem = path.stem
+        self._images_dir = Path(images_dir) if images_dir else None
+        self._image_counter = 0
 
+        html = path.read_text(encoding="utf-8")
+        # Normalize tables before parsing (merges split def+defFix tables)
+        html = normalize_tables_in_html(html)
+        self._soup = BeautifulSoup(html, "lxml")
+        self._preprocess_soup()
+
+        lines: list[str] = []
         self._convert_metadata(lines, source=source or self.SOURCE, doc_id=doc_id)
         self._convert_body(lines)
 
         return "\n".join(lines) + "\n"
+
+    # ── preprocessing ──
+
+    def _preprocess_soup(self) -> None:
+        """Remove lex.bg UI elements (icon images, javascript links)."""
+        # Remove 18×18 navigation icon images
+        for img in self._soup.find_all("img"):
+            if img.get("width") == "18" and img.get("height") == "18":
+                img.decompose()
+
+        # Remove javascript links
+        for a in self._soup.find_all("a"):
+            href = a.get("href", "")
+            onclick = a.get("onclick", "")
+            if "javascript:" in href or "javascript:" in onclick:
+                a.decompose()
 
     # ── metadata ──
 
@@ -268,28 +300,8 @@ class LexbgHtmlToMarkdown:
             self._eu_legislation_to_md(div, lines)
             return
 
-        content_divs = self._get_content_divs(div)
-        if not content_divs:
-            return
-
         lines.append("")
-
-        for i, cdiv in enumerate(content_divs):
-            text = _text(cdiv)
-            if not text:
-                continue
-
-            if i == 0:
-                # First div — should start with "Чл. N."
-                m = RE_ARTICLE_NUM.match(text)
-                if m:
-                    # Keep article header as-is — the MD parser will handle it
-                    lines.append(text)
-                else:
-                    lines.append(text)
-            else:
-                lines.append(text)
-
+        self._emit_content_children(div, lines)
         lines.append("")
 
     # ── provision / clause ──
@@ -302,15 +314,8 @@ class LexbgHtmlToMarkdown:
             lines.append("")
 
     def _clause_to_md(self, div: Tag, lines: list[str]) -> None:
-        content_divs = self._get_content_divs(div)
-        if not content_divs:
-            return
-
         lines.append("")
-        for cdiv in content_divs:
-            text = _text(cdiv)
-            if text:
-                lines.append(text)
+        self._emit_content_children(div, lines)
         lines.append("")
 
     # ── EU legislation ──
@@ -322,20 +327,88 @@ class LexbgHtmlToMarkdown:
             lines.append(f"<!-- eu_legislation: {text} -->")
             lines.append("")
 
-    # ── helpers ──
+    # ── content emission helpers ──
 
-    def _get_content_divs(self, parent: Tag) -> list[Tag]:
-        """Get all meaningful content <div>s from an article/clause element.
-
-        Handles lxml's DOM rewrite where <div>s inside <p> are moved out.
-        """
-        divs: list[Tag] = []
+    def _emit_content_children(self, parent: Tag, lines: list[str]) -> None:
+        """Emit Markdown for all content children: text divs, tables, images."""
         for child in parent.children:
-            if isinstance(child, Tag) and child.name == "div" and not _is_noise(child):
-                text = _text(child)
-                if text:
-                    divs.append(child)
-        return divs
+            if not isinstance(child, Tag):
+                continue
+
+            # Direct <table> child → emit as raw HTML block
+            if child.name == "table":
+                lines.append(str(child).strip())
+                continue
+
+            # Only process <div> children beyond this point
+            if child.name != "div":
+                continue
+
+            if _is_noise(child):
+                continue
+
+            # Image-only div → download image and emit MD reference
+            img = self._find_content_image(child)
+            if img is not None and not _text(child).strip():
+                md_ref = self._download_and_ref_image(img)
+                if md_ref:
+                    lines.append(md_ref)
+                continue
+
+            # Div wrapping a table → emit inner table(s) as raw HTML
+            if child.find("table"):
+                for tbl in child.find_all("table", recursive=False):
+                    lines.append(str(tbl).strip())
+                continue
+
+            # Regular text div
+            text = _text(child)
+            if text:
+                lines.append(text)
+
+    def _find_content_image(self, el: Tag) -> Tag | None:
+        """Return the first content image in *el*, or *None*.
+
+        Navigation icons (18×18) are already removed in preprocessing.
+        """
+        for img in el.find_all("img"):
+            if img.get("src"):
+                return img
+        return None
+
+    def _download_and_ref_image(self, img: Tag) -> str | None:
+        """Download *img* and return a Markdown image reference.
+
+        If ``images_dir`` was set, the image is saved locally and the
+        reference uses a relative path.  Otherwise the original URL is kept.
+        """
+        src = img.get("src", "")
+        if not src:
+            return None
+
+        alt = img.get("alt") or img.get("title") or "image"
+
+        if self._images_dir:
+            self._image_counter += 1
+            url_path = src.split("?")[0]
+            ext = Path(url_path).suffix or ".png"
+            filename = f"image_{self._image_counter:03d}{ext}"
+
+            self._images_dir.mkdir(parents=True, exist_ok=True)
+            local_path = self._images_dir / filename
+            try:
+                urllib.request.urlretrieve(src, str(local_path))
+            except Exception as exc:
+                print(
+                    f"  Warning: could not download {src}: {exc}",
+                    file=sys.stderr,
+                )
+
+            rel_path = f"images/{self._doc_stem}/{filename}"
+            return f"![{alt}]({rel_path})"
+
+        # No images_dir — keep original URL
+        return f"![{alt}]({src})"
 
 
 # ── CLI ──
@@ -355,7 +428,18 @@ def main() -> None:
     args = ap.parse_args()
 
     converter = LexbgHtmlToMarkdown()
-    md = converter.convert(args.file, source=args.source, doc_id=args.doc_id)
+    # Determine images directory (next to output, if output is specified)
+    images_dir = None
+    if args.output:
+        out_parent = Path(args.output).parent
+        doc_stem = Path(args.file).stem
+        images_dir = out_parent / "images" / doc_stem
+    md = converter.convert(
+        args.file,
+        source=args.source,
+        doc_id=args.doc_id,
+        images_dir=images_dir,
+    )
 
     if args.output:
         Path(args.output).write_text(md, encoding="utf-8")

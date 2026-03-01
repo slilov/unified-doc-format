@@ -67,7 +67,10 @@ def convert_html_to_md(
         sys.exit(1)
 
     converter = converter_cls()
-    md_text = converter.convert(file_path, source=source, doc_id=doc_id)
+    images_dir = OUTPUT_MD_DIR / "images" / file_path.stem
+    md_text = converter.convert(
+        file_path, source=source, doc_id=doc_id, images_dir=images_dir,
+    )
 
     OUTPUT_MD_DIR.mkdir(parents=True, exist_ok=True)
     md_path = OUTPUT_MD_DIR / (file_path.stem + ".md")

@@ -63,6 +63,9 @@ RE_DOUBLE_LETTER = re.compile(r"^([а-я]{2})\)\s*(.*)", re.DOTALL)
 RE_LETTER = re.compile(r"^([а-я])\)\s*(.*)", re.DOTALL)
 RE_LATIN_LETTER = re.compile(r"^([a-z])\)\s*(.*)", re.DOTALL)
 
+# Markdown image reference
+RE_MD_IMAGE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)")
+
 # Dots separator line (omitted articles in provisions)
 RE_DOTS = re.compile(r"^\.\s*\.\s*\.\s*\.\s*")
 
@@ -573,6 +576,9 @@ class MarkdownParser(BaseParser):
             art_lines.append(stripped)
             i += 1
 
+        # Merge multi-line HTML blocks into single entries
+        art_lines = self._merge_html_blocks(art_lines)
+
         # Now parse the article's internal structure
         self._parse_article_internals(art_node, art_lines, counter)
 
@@ -600,7 +606,9 @@ class MarkdownParser(BaseParser):
             child_lines: list[str] = []
             for l in lines:
                 if (RE_POINT.match(l) or RE_LETTER.match(l) or
-                        RE_LATIN_LETTER.match(l)):
+                        RE_LATIN_LETTER.match(l) or
+                        RE_MD_IMAGE.match(l) or
+                        l.lstrip().startswith('<table')):
                     child_lines.append(l)
                 else:
                     if child_lines:
@@ -637,6 +645,22 @@ class MarkdownParser(BaseParser):
                 current_para_lines = []
 
         for line in lines:
+            # ── image / HTML block ──
+            m_img = RE_MD_IMAGE.match(line)
+            is_html_block = line.lstrip().startswith('<table') or line.lstrip().startswith('<div')
+            if m_img or is_html_block:
+                if current_para is not None:
+                    # Will be handled by _parse_flat_elements
+                    current_para_lines.append(line)
+                else:
+                    # Before first paragraph — attach to parent
+                    if m_img:
+                        node = Node(type=NodeType.IMAGE, content=m_img.group(2))
+                    else:
+                        node = Node(type=NodeType.HTML_BLOCK, html_content=line)
+                    parent.children.append(node)
+                continue
+
             m = RE_PARAGRAPH.match(line)
             if m:
                 flush_para()
@@ -773,6 +797,29 @@ class MarkdownParser(BaseParser):
                 target.children.append(node)
                 continue
 
+            # ── image ──
+            m = RE_MD_IMAGE.match(line)
+            if m:
+                flush_content()
+                node = Node(
+                    type=NodeType.IMAGE,
+                    content=m.group(2),
+                )
+                target = current_letter or current_point or parent
+                target.children.append(node)
+                continue
+
+            # ── HTML block (table) ──
+            if line.lstrip().startswith('<table') or line.lstrip().startswith('<div'):
+                flush_content()
+                node = Node(
+                    type=NodeType.HTML_BLOCK,
+                    html_content=line,
+                )
+                target = current_letter or current_point or parent
+                target.children.append(node)
+                continue
+
             # ── plain content line ──
             if current_point is not None or current_letter is not None:
                 # Continuation of the last point/letter
@@ -853,11 +900,55 @@ class MarkdownParser(BaseParser):
             clause_lines.append(stripped)
             i += 1
 
+        # Merge multi-line HTML blocks into single entries
+        clause_lines = self._merge_html_blocks(clause_lines)
+
         # Parse clause internals (same structure as article)
         self._parse_article_internals(clause_node, clause_lines, counter)
 
         return i
 
+    # ── HTML block merging ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _merge_html_blocks(lines: list[str]) -> list[str]:
+        """Merge multi-line HTML blocks (``<table>``/``<div>``) into
+        single entries so downstream parsers see them as one “line”.
+        """
+        result: list[str] = []
+        html_buffer: list[str] = []
+        depth = 0
+        tag_name = ""
+
+        for line in lines:
+            stripped = line.strip()
+
+            if html_buffer:
+                html_buffer.append(line)
+                depth += len(re.findall(rf'<{tag_name}[\s>]', stripped, re.IGNORECASE))
+                depth -= len(re.findall(rf'</{tag_name}>', stripped, re.IGNORECASE))
+                if depth <= 0:
+                    result.append('\n'.join(html_buffer))
+                    html_buffer = []
+                    depth = 0
+                    tag_name = ""
+            elif stripped.startswith('<table') or stripped.startswith('<div'):
+                tag_name = 'table' if stripped.startswith('<table') else 'div'
+                opens = len(re.findall(rf'<{tag_name}[\s>]', stripped, re.IGNORECASE))
+                closes = len(re.findall(rf'</{tag_name}>', stripped, re.IGNORECASE))
+                if opens <= closes:
+                    result.append(line)
+                else:
+                    html_buffer = [line]
+                    depth = opens - closes
+            else:
+                result.append(line)
+
+        # Handle unclosed blocks
+        if html_buffer:
+            result.extend(html_buffer)
+
+        return result
 
 # ══════════════════════════════════════════════════════════════════════════
 # CLI
