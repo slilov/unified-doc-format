@@ -18,7 +18,7 @@ import sys
 import urllib.request
 
 from bs4 import BeautifulSoup, Tag, NavigableString
-from table_normalizer import normalize_tables_in_html
+from convertors.table_normalizer import normalize_tables_in_html
 
 
 # ── regex helpers ─────────────────────────────────────────────────────────

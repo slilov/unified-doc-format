@@ -32,7 +32,7 @@ import json
 import sys
 from pathlib import Path
 
-from converter_lexbg import LexbgHtmlToMarkdown
+from convertors.converter_lexbg import LexbgHtmlToMarkdown
 from parser_markdown import MarkdownParser
 
 INPUT_DIR = Path("input_docs")
