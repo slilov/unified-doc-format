@@ -195,6 +195,12 @@ RE_PART_NUM = re.compile(
 )
 
 
+_RE_ORDINAL_LETTER_SUFFIX = re.compile(
+    r'^(.+?)\s*["""\u201C\u201E„]([а-яa-z])["""\u201D\u201C"]*$',
+    re.IGNORECASE,
+)
+
+
 def _extract_heading_item(
     text: str,
     pattern: re.Pattern,
@@ -210,11 +216,18 @@ def _extract_heading_item(
     rest = (m.group(2) or "").strip() if m.lastindex >= 2 else ""
     num = ordinal_to_number(raw_ordinal)
     if num is None:
-        # Try as a plain digit
-        if raw_ordinal.isdigit():
-            num = raw_ordinal
-        else:
-            num = raw_ordinal  # keep as-is
+        # Check for ordinal + quoted letter, e.g. 'първа "а"' → '1а'
+        ml = _RE_ORDINAL_LETTER_SUFFIX.match(raw_ordinal)
+        if ml:
+            base_num = ordinal_to_number(ml.group(1).strip())
+            if base_num is not None:
+                num = base_num + ml.group(2)
+        if num is None:
+            # Try as a plain digit
+            if raw_ordinal.isdigit():
+                num = raw_ordinal
+            else:
+                num = raw_ordinal  # keep as-is
     return num, text.strip()
 
 
@@ -890,6 +903,7 @@ class MarkdownParser(BaseParser):
                 current_para = Node(
                     type=NodeType.PARAGRAPH,
                     item=para_item,
+                    title=f"({para_item})",
                 )
                 parent.children.append(current_para)
                 if para_rest:
@@ -933,6 +947,7 @@ class MarkdownParser(BaseParser):
                 node = Node(
                     type=NodeType.SUB_SUBPOINT,
                     item=m.group(1),
+                    title=f"{m.group(1)}.",
                     content=m.group(2).strip() or None,
                 )
                 target = current_letter or current_point or parent
@@ -946,6 +961,7 @@ class MarkdownParser(BaseParser):
                 node = Node(
                     type=NodeType.SUBPOINT,
                     item=m.group(1),
+                    title=f"{m.group(1)}.",
                     content=m.group(2).strip() or None,
                 )
                 target = current_point or parent
@@ -960,6 +976,7 @@ class MarkdownParser(BaseParser):
                 current_point = Node(
                     type=NodeType.POINT,
                     item=m.group(1),
+                    title=f"{m.group(1)}.",
                     content=m.group(2).strip() or None,
                 )
                 parent.children.append(current_point)
@@ -972,6 +989,7 @@ class MarkdownParser(BaseParser):
                 node = Node(
                     type=NodeType.TRIPLE_LETTER,
                     item=m.group(1),
+                    title=f"{m.group(1)})",
                     content=m.group(2).strip() or None,
                 )
                 target = current_letter or current_point or parent
@@ -985,6 +1003,7 @@ class MarkdownParser(BaseParser):
                 node = Node(
                     type=NodeType.DOUBLE_LETTER,
                     item=m.group(1),
+                    title=f"{m.group(1)})",
                     content=m.group(2).strip() or None,
                 )
                 target = current_point or parent
@@ -999,6 +1018,7 @@ class MarkdownParser(BaseParser):
                 current_letter = Node(
                     type=NodeType.LETTER,
                     item=m.group(1),
+                    title=f"{m.group(1)})",
                     content=m.group(2).strip() or None,
                 )
                 target = current_point or parent
@@ -1012,6 +1032,7 @@ class MarkdownParser(BaseParser):
                 node = Node(
                     type=NodeType.LATIN_LETTER,
                     item=m.group(1),
+                    title=f"{m.group(1)})",
                     content=m.group(2).strip() or None,
                 )
                 target = current_point or parent
