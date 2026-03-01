@@ -64,8 +64,10 @@ RE_MD_TITLE = re.compile(r"^#\s+(.+)")
 # Metadata comments
 RE_SOURCE = re.compile(r"^<!--\s*source:\s*(.+?)\s*-->$", re.DOTALL)
 RE_DOC_ID = re.compile(r"^<!--\s*doc_id:\s*(.+?)\s*-->$", re.DOTALL)
-RE_EXPLANATION = re.compile(r"^<!--\s*explanation:\s*(.+?)\s*-->$", re.DOTALL)
-RE_HISTORY = re.compile(r"^<!--\s*history:\s*(.+?)\s*-->$", re.DOTALL)
+# Explanation: starts with "В сила от" ("In force since")
+RE_EXPLANATION = re.compile(r"^(В сила от\s+.+)$")
+# History: starts with gazette references like "Обн. ДВ.", "Изм. ДВ.", etc.
+RE_HISTORY = re.compile(r"^((?:Обн|Изм|Доп|Попр)\.\s*ДВ\.\s*.+)$")
 
 # Article-level elements (inside plain text lines)
 RE_ARTICLE_NUM = re.compile(r"^Чл\.\s*(\d+[а-я]?)\.\s*(.*)", re.DOTALL)
