@@ -30,14 +30,33 @@ from base_parser import BaseParser
 
 # ── Regex patterns for Markdown elements ──────────────────────────────────
 
-# Structural headings (from Markdown heading markers)
-RE_MD_PART = re.compile(r"^##\s+PART:\s*(.+)", re.DOTALL)
-RE_MD_CHAPTER = re.compile(r"^###\s+CHAPTER:\s*(.+)", re.DOTALL)
-RE_MD_PARTITION = re.compile(r"^###\s+PARTITION:\s*(.+)", re.DOTALL)
-RE_MD_SECTION = re.compile(r"^####\s+SECTION:\s*(.+)", re.DOTALL)
-RE_MD_SUBSECTION = re.compile(r"^#####\s+SUBSECTION:\s*(.+)", re.DOTALL)
-RE_MD_HEADING = re.compile(r"^####\s+HEADING:\s*(.+)", re.DOTALL)
-RE_MD_PROVISION = re.compile(r"^##\s+PROVISION:\s*(.+)", re.DOTALL)
+# Any Markdown heading level 2+ (captures text after the ## markers)
+RE_HEADING = re.compile(r"^#{2,}\s+(.+)")
+
+# ── Text-based type detection for structural headings ─────────────────────
+# The parser does NOT rely on heading level — type is inferred from text.
+
+RE_PART_TEXT = re.compile(r"^Част\s+", re.IGNORECASE)
+RE_PARTITION_TEXT = re.compile(r"^Дял\s+", re.IGNORECASE)
+RE_CHAPTER_TEXT = re.compile(r"^Глава\s+", re.IGNORECASE)
+RE_SECTION_TEXT = re.compile(r"^Раздел\s+", re.IGNORECASE)
+RE_SUBSECTION_TEXT = re.compile(r"^Подраздел\s+", re.IGNORECASE)
+RE_PROVISION_TEXT = re.compile(
+    r"(?:допълнителн|особен|преходн|заключителн).*разпоредб",
+    re.IGNORECASE,
+)
+RE_EU_LEGISLATION_TEXT = re.compile(
+    r"Релевантни\s+актове.*Европейско",
+    re.IGNORECASE,
+)
+
+# EU legislation category labels → node type tag
+_EU_CATEGORY_LABELS: dict[str, str] = {
+    "Директиви": "EU_DIRECTIVE",
+    "Регламенти": "EU_REGULATION",
+    "Решения": "EU_DECISION",
+    "Други актове": "EU_OTHER_ACT",
+}
 
 # Title (level 1 heading)
 RE_MD_TITLE = re.compile(r"^#\s+(.+)")
@@ -47,7 +66,6 @@ RE_SOURCE = re.compile(r"^<!--\s*source:\s*(.+?)\s*-->$", re.DOTALL)
 RE_DOC_ID = re.compile(r"^<!--\s*doc_id:\s*(.+?)\s*-->$", re.DOTALL)
 RE_EXPLANATION = re.compile(r"^<!--\s*explanation:\s*(.+?)\s*-->$", re.DOTALL)
 RE_HISTORY = re.compile(r"^<!--\s*history:\s*(.+?)\s*-->$", re.DOTALL)
-RE_EU_LEGISLATION = re.compile(r"^<!--\s*eu_legislation:\s*(.+?)\s*-->$", re.DOTALL)
 
 # Article-level elements (inside plain text lines)
 RE_ARTICLE_NUM = re.compile(r"^Чл\.\s*(\d+[а-я]?)\.\s*(.*)", re.DOTALL)
@@ -131,7 +149,6 @@ class MarkdownParser(BaseParser):
         self._md_doc_id: str = ""
         self._explanation: str = ""
         self._history: str = ""
-        self._eu_legislation: str = ""
 
     # ── BaseParser interface ──────────────────────────────────────────────
 
@@ -141,8 +158,7 @@ class MarkdownParser(BaseParser):
         source: str = "",
         doc_id: str = "",
     ) -> dict[str, Any]:
-        """Override to resolve source/doc_id from the MD file and inject
-        eu_legislation discovered during tree parsing.
+        """Override to resolve source/doc_id from the MD file.
 
         *source* and *doc_id* passed here act as overrides; if empty,
         values embedded in the Markdown (``<!-- source: … -->``,
@@ -183,9 +199,6 @@ class MarkdownParser(BaseParser):
             "table_of_contents": toc,
             "document": [n.to_dict() for n in document_tree],
         }
-
-        if self._eu_legislation:
-            result["metadata"]["eu_legislation"] = self._eu_legislation
 
         return result
 
@@ -278,137 +291,146 @@ class MarkdownParser(BaseParser):
                 i += 1
                 continue
 
-            # ── EU legislation comment ──
-            m = RE_EU_LEGISLATION.match(stripped)
+            # ── Structural heading (any ## level) — type from text ──
+            m = RE_HEADING.match(stripped)
             if m:
-                self._eu_legislation = m.group(1).strip()
-                i += 1
-                continue
+                h_text = m.group(1).strip()
 
-            # ── structural heading: PROVISION ──
-            m = RE_MD_PROVISION.match(stripped)
-            if m:
-                title_text = normalize_structural_text(m.group(1))
-                item = counter.next_item(NodeType.PROVISION)
-                node = Node(
-                    type=NodeType.PROVISION,
-                    title=title_text,
-                    item=item,
-                )
-                # If a PART is on the stack, provision is a child of that PART.
-                # Pop down to the PART level (remove chapters/sections/etc.)
-                while struct_stack and struct_stack[-1][1] > 0:
-                    struct_stack.pop()
+                # EU legislation block
+                if RE_EU_LEGISLATION_TEXT.search(h_text):
+                    eu_node = Node(
+                        type=NodeType.EU_LEGISLATION_RELEVANCE,
+                        title=normalize_structural_text(h_text),
+                    )
+                    i = self._parse_eu_legislation(eu_node, i + 1)
+                    root_nodes.append(eu_node)
+                    continue
 
-                if struct_stack and struct_stack[-1][1] == 0:
-                    # Attach under the current PART
-                    struct_stack[-1][0].children.append(node)
-                else:
-                    root_nodes.append(node)
+                # Provision
+                if RE_PROVISION_TEXT.search(h_text):
+                    title_text = normalize_structural_text(h_text)
+                    item = counter.next_item(NodeType.PROVISION)
+                    node = Node(
+                        type=NodeType.PROVISION,
+                        title=title_text,
+                        item=item,
+                    )
+                    while struct_stack and struct_stack[-1][1] > 0:
+                        struct_stack.pop()
+                    if struct_stack and struct_stack[-1][1] == 0:
+                        struct_stack[-1][0].children.append(node)
+                    else:
+                        root_nodes.append(node)
+                    current_provision = node
+                    i += 1
+                    continue
 
-                current_provision = node
-                # Do NOT clear struct_stack — the PART context must persist
-                # so subsequent chapters can still attach to it.
-                i += 1
-                continue
+                # Part ("Част ..." or ALL-CAPS text)
+                if RE_PART_TEXT.match(h_text):
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
+                    item_num, title_text = _extract_heading_item(raw_title, RE_PART_NUM)
+                    if item_num is None:
+                        item_num = counter.next_item(NodeType.PART)
+                    else:
+                        counter._counters[NodeType.PART] = int(item_num)
+                    counter.reset_lower(NodeType.PART)
+                    node = Node(
+                        type=NodeType.PART,
+                        title=title_text,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 0, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
 
-            # ── structural heading: PART ──
-            m = RE_MD_PART.match(stripped)
-            if m:
-                raw_title = normalize_structural_text(m.group(1))
-                item_num, title_text = _extract_heading_item(raw_title, RE_PART_NUM)
-                if item_num is None:
+                # Partition ("Дял ...")
+                if RE_PARTITION_TEXT.match(h_text):
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
+                    item_num, title_text = _extract_heading_item(raw_title, RE_PARTITION_NUM)
+                    if item_num is None:
+                        item_num = counter.next_item(NodeType.PARTITION)
+                    counter.reset_lower(NodeType.PARTITION)
+                    node = Node(
+                        type=NodeType.PARTITION,
+                        title=title_text,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 1, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
+
+                # Chapter ("Глава ...")
+                if RE_CHAPTER_TEXT.match(h_text):
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
+                    item_num, title_text = _extract_heading_item(raw_title, RE_CHAPTER_NUM)
+                    if item_num is None:
+                        item_num = counter.next_item(NodeType.CHAPTER)
+                    counter.reset_lower(NodeType.CHAPTER)
+                    node = Node(
+                        type=NodeType.CHAPTER,
+                        title=title_text,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 2, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
+
+                # Section ("Раздел ...")
+                if RE_SECTION_TEXT.match(h_text):
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
+                    item_num, title_text = _extract_heading_item(raw_title, RE_SECTION_NUM)
+                    if item_num is None:
+                        item_num = counter.next_item(NodeType.SECTION)
+                    counter.reset_lower(NodeType.SECTION)
+                    node = Node(
+                        type=NodeType.SECTION,
+                        title=title_text,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 3, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
+
+                # Subsection ("Подраздел ...")
+                if RE_SUBSECTION_TEXT.match(h_text):
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
+                    item_num, title_text = _extract_heading_item(raw_title, RE_SUBSECTION_NUM)
+                    if item_num is None:
+                        item_num = counter.next_item(NodeType.SUBSECTION)
+                    counter.reset_lower(NodeType.SUBSECTION)
+                    node = Node(
+                        type=NodeType.SUBSECTION,
+                        title=title_text,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 4, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
+
+                # ALL-CAPS text → Part
+                alpha = [c for c in h_text if c.isalpha()]
+                if alpha and sum(1 for c in alpha if c.isupper()) / len(alpha) > 0.7:
+                    current_provision = None
+                    raw_title = normalize_structural_text(h_text)
                     item_num = counter.next_item(NodeType.PART)
-                else:
-                    counter._counters[NodeType.PART] = int(item_num)
-                counter.reset_lower(NodeType.PART)
-                node = Node(
-                    type=NodeType.PART,
-                    title=title_text,
-                    item=str(item_num),
-                )
-                current_provision = None
-                self._push_structural(node, 0, struct_stack, root_nodes, counter)
-                i += 1
-                continue
+                    counter.reset_lower(NodeType.PART)
+                    node = Node(
+                        type=NodeType.PART,
+                        title=raw_title,
+                        item=str(item_num),
+                    )
+                    self._push_structural(node, 0, struct_stack, root_nodes, counter)
+                    i += 1
+                    continue
 
-            # ── structural heading: CHAPTER ──
-            m = RE_MD_CHAPTER.match(stripped)
-            if m:
+                # Fallback: generic heading
                 current_provision = None
-                raw_title = normalize_structural_text(m.group(1))
-                item_num, title_text = _extract_heading_item(raw_title, RE_CHAPTER_NUM)
-                if item_num is None:
-                    item_num = counter.next_item(NodeType.CHAPTER)
-                counter.reset_lower(NodeType.CHAPTER)
-                node = Node(
-                    type=NodeType.CHAPTER,
-                    title=title_text,
-                    item=str(item_num),
-                )
-                self._push_structural(node, 2, struct_stack, root_nodes, counter)
-                i += 1
-                continue
-
-            # ── structural heading: PARTITION ──
-            m = RE_MD_PARTITION.match(stripped)
-            if m:
-                current_provision = None
-                raw_title = normalize_structural_text(m.group(1))
-                item_num, title_text = _extract_heading_item(raw_title, RE_PARTITION_NUM)
-                if item_num is None:
-                    item_num = counter.next_item(NodeType.PARTITION)
-                counter.reset_lower(NodeType.PARTITION)
-                node = Node(
-                    type=NodeType.PARTITION,
-                    title=title_text,
-                    item=str(item_num),
-                )
-                self._push_structural(node, 1, struct_stack, root_nodes, counter)
-                i += 1
-                continue
-
-            # ── structural heading: SECTION ──
-            m = RE_MD_SECTION.match(stripped)
-            if m:
-                current_provision = None
-                raw_title = normalize_structural_text(m.group(1))
-                item_num, title_text = _extract_heading_item(raw_title, RE_SECTION_NUM)
-                if item_num is None:
-                    item_num = counter.next_item(NodeType.SECTION)
-                counter.reset_lower(NodeType.SECTION)
-                node = Node(
-                    type=NodeType.SECTION,
-                    title=title_text,
-                    item=str(item_num),
-                )
-                self._push_structural(node, 3, struct_stack, root_nodes, counter)
-                i += 1
-                continue
-
-            # ── structural heading: SUBSECTION ──
-            m = RE_MD_SUBSECTION.match(stripped)
-            if m:
-                current_provision = None
-                raw_title = normalize_structural_text(m.group(1))
-                item_num, title_text = _extract_heading_item(raw_title, RE_SUBSECTION_NUM)
-                if item_num is None:
-                    item_num = counter.next_item(NodeType.SUBSECTION)
-                counter.reset_lower(NodeType.SUBSECTION)
-                node = Node(
-                    type=NodeType.SUBSECTION,
-                    title=title_text,
-                    item=str(item_num),
-                )
-                self._push_structural(node, 4, struct_stack, root_nodes, counter)
-                i += 1
-                continue
-
-            # ── structural heading: HEADING ──
-            m = RE_MD_HEADING.match(stripped)
-            if m:
-                current_provision = None
-                raw_title = normalize_structural_text(m.group(1))
+                raw_title = normalize_structural_text(h_text)
                 item = counter.next_item(NodeType.HEADING)
                 node = Node(
                     type=NodeType.HEADING,
@@ -496,6 +518,74 @@ class MarkdownParser(BaseParser):
 
         stack.append((node, rank))
 
+    # ── EU legislation parsing ────────────────────────────────────────────
+
+    _EU_TAG_TO_TYPE: dict[str, str] = {
+        "EU_DIRECTIVE": NodeType.EU_DIRECTIVE,
+        "EU_REGULATION": NodeType.EU_REGULATION,
+        "EU_DECISION": NodeType.EU_DECISION,
+        "EU_OTHER_ACT": NodeType.EU_OTHER_ACT,
+    }
+
+    _EU_ITEM_TYPE: dict[str, str] = {
+        NodeType.EU_DIRECTIVE: NodeType.EU_DIRECTIVE_ITEM,
+        NodeType.EU_REGULATION: NodeType.EU_REGULATION_ITEM,
+        NodeType.EU_DECISION: NodeType.EU_DECISION_ITEM,
+        NodeType.EU_OTHER_ACT: NodeType.EU_OTHER_ACT_ITEM,
+    }
+
+    def _parse_eu_legislation(
+        self,
+        eu_node: Node,
+        start_idx: int,
+    ) -> int:
+        """Parse EU legislation categories and items.
+
+        Returns the index of the next line to process.
+        """
+        current_category: Node | None = None
+        i = start_idx
+
+        while i < len(self._lines):
+            line = self._lines[i]
+            stripped = line.strip()
+
+            if not stripped:
+                i += 1
+                continue
+
+            # Category heading (Директиви, Регламенти, etc.)
+            m = RE_HEADING.match(stripped)
+            if m:
+                h_text = m.group(1).strip()
+                # Check if this is a known EU category label
+                eu_tag = _EU_CATEGORY_LABELS.get(h_text)
+                if eu_tag:
+                    node_type = self._EU_TAG_TO_TYPE[eu_tag]
+                    current_category = Node(
+                        type=node_type,
+                        title=h_text,
+                    )
+                    eu_node.children.append(current_category)
+                    i += 1
+                    continue
+                # Other heading → end of EU block
+                break
+
+            # Regular item line → create item node under current category
+            if current_category is not None:
+                item_type = self._EU_ITEM_TYPE.get(
+                    current_category.type, NodeType.EU_DIRECTIVE_ITEM,
+                )
+                item_node = Node(
+                    type=item_type,
+                    content=stripped,
+                )
+                current_category.children.append(item_node)
+            i += 1
+
+        return i
+
     # ── article parsing ───────────────────────────────────────────────────
 
     def _parse_article(
@@ -556,7 +646,6 @@ class MarkdownParser(BaseParser):
                 if (next_stripped.startswith("##") or
                         RE_ARTICLE_NUM.match(next_stripped) or
                         RE_CLAUSE.match(next_stripped) or
-                        RE_EU_LEGISLATION.match(next_stripped) or
                         RE_DOTS.match(next_stripped)):
                     break
                 # Otherwise it's a continuation (multi-paragraph article)
@@ -565,7 +654,6 @@ class MarkdownParser(BaseParser):
 
             # Structural markers end the article
             if (stripped.startswith("##") or
-                    RE_EU_LEGISLATION.match(stripped) or
                     RE_DOTS.match(stripped)):
                 break
 
@@ -883,14 +971,12 @@ class MarkdownParser(BaseParser):
                 if (next_stripped.startswith("##") or
                         RE_ARTICLE_NUM.match(next_stripped) or
                         RE_CLAUSE.match(next_stripped) or
-                        RE_EU_LEGISLATION.match(next_stripped) or
                         RE_DOTS.match(next_stripped)):
                     break
                 i += 1
                 continue
 
             if (stripped.startswith("##") or
-                    RE_EU_LEGISLATION.match(stripped) or
                     RE_DOTS.match(stripped)):
                 break
 

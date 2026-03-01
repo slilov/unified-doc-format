@@ -239,28 +239,28 @@ class LexbgHtmlToMarkdown:
         # Provision-type heading
         if RE_PROVISION.search(text):
             lines.append("")
-            lines.append(f"## PROVISION: {text}")
+            lines.append(f"## {text}")
             lines.append("")
             return
 
         # "Част ..." → Part (level 2)
         if RE_PART_ALLCAPS.match(text):
             lines.append("")
-            lines.append(f"## PART: {text}")
+            lines.append(f"## {text}")
             lines.append("")
             return
 
         # "Дял ..." → Partition (level 3)
         if RE_PARTITION.match(text):
             lines.append("")
-            lines.append(f"### PARTITION: {text}")
+            lines.append(f"### {text}")
             lines.append("")
             return
 
         # "Глава ..." → Chapter (level 3)
         if RE_CHAPTER.match(text):
             lines.append("")
-            lines.append(f"### CHAPTER: {text}")
+            lines.append(f"### {text}")
             lines.append("")
             return
 
@@ -268,13 +268,13 @@ class LexbgHtmlToMarkdown:
         alpha = [c for c in text if c.isalpha()]
         if alpha and sum(1 for c in alpha if c.isupper()) / len(alpha) > 0.7:
             lines.append("")
-            lines.append(f"## PART: {text}")
+            lines.append(f"## {text}")
             lines.append("")
             return
 
         # Fallback: generic heading
         lines.append("")
-        lines.append(f"#### HEADING: {text}")
+        lines.append(f"#### {text}")
         lines.append("")
 
     def _section_to_md(self, div: Tag, lines: list[str]) -> None:
@@ -284,11 +284,11 @@ class LexbgHtmlToMarkdown:
 
         if RE_SUBSECTION.match(text):
             lines.append("")
-            lines.append(f"##### SUBSECTION: {text}")
+            lines.append(f"##### {text}")
             lines.append("")
         else:
             lines.append("")
-            lines.append(f"#### SECTION: {text}")
+            lines.append(f"#### {text}")
             lines.append("")
 
     # ── article ──
@@ -310,7 +310,7 @@ class LexbgHtmlToMarkdown:
         text = _text(div)
         if text:
             lines.append("")
-            lines.append(f"## PROVISION: {text}")
+            lines.append(f"## {text}")
             lines.append("")
 
     def _clause_to_md(self, div: Tag, lines: list[str]) -> None:
@@ -320,12 +320,65 @@ class LexbgHtmlToMarkdown:
 
     # ── EU legislation ──
 
+    # Category label → markdown tag
+    _EU_CATEGORIES: dict[str, str] = {
+        "Директиви:": "EU_DIRECTIVE",
+        "Регламенти:": "EU_REGULATION",
+        "Решения:": "EU_DECISION",
+        "Други актове:": "EU_OTHER_ACT",
+    }
+
     def _eu_legislation_to_md(self, div: Tag, lines: list[str]) -> None:
-        text = _text(div)
-        if text:
-            lines.append("")
-            lines.append(f"<!-- eu_legislation: {text} -->")
-            lines.append("")
+        """Emit structured Markdown for the EU-legislation block.
+
+        Produces::
+
+            ## EU_LEGISLATION: Релевантни актове …
+            ### EU_DIRECTIVE: Директиви
+            ДИРЕКТИВА …
+            ### EU_REGULATION: Регламенти
+            РЕГЛАМЕНТ …
+        """
+        title_p = div.find("p", class_="Title")
+        title = _text(title_p) if title_p else "Релевантни актове от Европейското законодателство"
+
+        lines.append("")
+        lines.append(f"## {title}")
+        lines.append("")
+
+        current_tag: str | None = None
+
+        for child in div.children:
+            if not isinstance(child, Tag):
+                continue
+            # Skip the title <p> and buttons
+            if child.name == "p":
+                continue
+            if child.name == "br":
+                continue
+            if child.name != "div":
+                continue
+
+            text = _text(child)
+            if not text:
+                continue
+
+            # Check if this is a category header ("Директиви:", etc.)
+            matched = False
+            for label, tag in self._EU_CATEGORIES.items():
+                if text == label or text.rstrip(":") + ":" == label:
+                    current_tag = tag
+                    lines.append(f"### {text.rstrip(':')}")
+                    lines.append("")
+                    matched = True
+                    break
+            if matched:
+                continue
+
+            # Regular item under the current category
+            lines.append(text)
+
+        lines.append("")
 
     # ── content emission helpers ──
 
